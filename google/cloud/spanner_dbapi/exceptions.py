@@ -4,7 +4,7 @@
 # license that can be found in the LICENSE file or at
 # https://developers.google.com/open-source/licenses/bsd
 
-"""Spanner DB API exceptions."""
+"""Spanner DB API exceptions listed in PEP-249."""
 
 
 class Warning(Exception):
@@ -23,8 +23,7 @@ class Error(Exception):
 
 
 class InterfaceError(Error):
-    """
-    Error related to the database interface
+    """Error related to the database interface
     rather than the database itself.
     """
 
@@ -38,8 +37,7 @@ class DatabaseError(Error):
 
 
 class DataError(DatabaseError):
-    """
-    Error due to problems with the processed data like
+    """Error due to problems with the processed data like
     division by zero, numeric value out of range, etc.
     """
 
@@ -47,19 +45,16 @@ class DataError(DatabaseError):
 
 
 class OperationalError(DatabaseError):
-    """
-    Error related to the database's operation, e.g. an
-    unexpected disconnect, the data source name is not
-    found, a transaction could not be processed, a
-    memory allocation error, etc.
+    """Error related to the database's operation, e.g. an unexpected
+    disconnect, the data source name is not found, a transaction could not
+    be processed, a memory allocation error, etc.
     """
 
     pass
 
 
 class IntegrityError(DatabaseError):
-    """
-    Error for cases of relational integrity of the database
+    """Error for cases of relational integrity of the database
     is affected, e.g. a foreign key check fails.
     """
 
@@ -67,8 +62,7 @@ class IntegrityError(DatabaseError):
 
 
 class InternalError(DatabaseError):
-    """
-    Internal database error, e.g. the cursor is not valid
+    """Internal database error, e.g. the cursor is not valid
     anymore, the transaction is out of sync, etc.
     """
 
@@ -76,18 +70,15 @@ class InternalError(DatabaseError):
 
 
 class ProgrammingError(DatabaseError):
-    """
-    Programming error, e.g. table not found or already
-    exists, syntax error in the SQL statement, wrong
-    number of parameters specified, etc.
+    """Programming error, e.g. table not found or already exists, syntax
+    error in the SQL statement, wrong number of parameters specified, etc.
     """
 
     pass
 
 
 class NotSupportedError(DatabaseError):
-    """
-    Error for case of a method or database API not
+    """Error for case of a method or database API not
     supported by the database was used.
     """
 
