@@ -34,14 +34,14 @@ class TestConnection(unittest.TestCase):
         self.assertIsInstance(connection.database, Database)
         self.assertEqual(connection.database.database_id, self.database_name)
 
-        self.assertFalse(connection.is_closed)
+        self.assertFalse(connection._is_closed)
 
     def test_close(self):
         connection = self._make_connection()
 
-        self.assertFalse(connection.is_closed)
+        self.assertFalse(connection._is_closed)
         connection.close()
-        self.assertTrue(connection.is_closed)
+        self.assertTrue(connection._is_closed)
 
         with self.assertRaises(InterfaceError):
             connection.cursor()
@@ -54,3 +54,68 @@ class TestConnection(unittest.TestCase):
 
         with self.assertRaises(Warning):
             connection.rollback()
+
+    def test_connection_close_check_if_open(self):
+        connection = self._make_connection()
+
+        connection.cursor()
+        self.assertFalse(connection._is_closed)
+
+    def test_is_closed(self):
+        connection = self._make_connection()
+
+        self.assertEqual(connection._is_closed, connection.is_closed)
+        connection.close()
+        self.assertEqual(connection._is_closed, connection.is_closed)
+
+    def test_inside_transaction(self):
+        connection = self._make_connection()
+
+        self.assertEqual(
+            connection._inside_transaction,
+            connection.inside_transaction,
+        )
+
+    def test_transaction_started(self):
+        connection = self._make_connection()
+
+        self.assertEqual(
+            connection.transaction_started,
+            connection._transaction_started,
+        )
+
+    def test_cursor(self):
+        from google.cloud.spanner_dbapi.cursor import Cursor
+
+        connection = self._make_connection()
+        cursor = connection.cursor()
+
+        self.assertIsInstance(cursor, Cursor)
+        self.assertEqual(connection, cursor._connection)
+
+    def test_commit(self):
+        connection = self._make_connection()
+
+        with self.assertRaises(Warning):
+            connection.commit()
+
+    def test_rollback(self):
+        connection = self._make_connection()
+
+        with self.assertRaises(Warning):
+            connection.rollback()
+
+    def test_context_success(self):
+        connection = self._make_connection()
+
+        with connection as conn:
+            conn.cursor()
+        self.assertTrue(connection._is_closed)
+
+    def test_context_error(self):
+        connection = self._make_connection()
+
+        with self.assertRaises(Exception):
+            with connection:
+                raise Exception
+        self.assertTrue(connection._is_closed)
