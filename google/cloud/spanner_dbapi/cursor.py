@@ -79,7 +79,6 @@ class Cursor(object):
     :type connection: :class:`spanner_dbapi.connection.Connection`
     :param connection: Parent connection object for this Cursor.
     """
-
     def __init__(self, connection):
         self._connection = connection
         self._is_closed = False
@@ -111,8 +110,7 @@ class Cursor(object):
         """Returns tuple with description of every column of the resulting rows
         with several fields
 
-        :return: tuple
-        """
+        :return: tuple"""
         if not (self._stream and self._stream.metadata):
             return None
 
@@ -133,7 +131,6 @@ class Cursor(object):
 
     def close(self):
         """Closes this cursor."""
-
         self._connection = None
         self._is_closed = True
 
@@ -207,7 +204,7 @@ class Cursor(object):
         items = []
         for i in range(size):
             try:
-                items.append(tuple(self.__next__()))
+                items.append(tuple(next(self)))
             except StopIteration:
                 break
 
@@ -215,7 +212,7 @@ class Cursor(object):
 
     @_is_connection_closed
     def fetchall(self):
-        return list(self.__iter__())
+        return list(iter(self))
 
     def __next__(self):
         if self._itr is None:
@@ -229,8 +226,9 @@ class Cursor(object):
 
     @_is_connection_closed
     def _handle_update(self, sql, params):
-        self._connection.database.run_in_transaction(self.__do_execute_update,
-                                                     sql, params)
+        self._connection.database.run_in_transaction(
+            self.__do_execute_update, sql, params
+        )
 
     def __do_execute_update(self, transaction, sql, params, param_types=None):
         sql = ensure_where_clause(sql)
@@ -282,14 +280,14 @@ class Cursor(object):
             res = transaction.execute_sql(
                 sql, params=params, param_types=param_types
             )
-            # TODO: File a bug with Cloud Spanner and the Python client maintainers
-            # about a lost commit when res isn't read from.
-            _ = list(res)
 
     def _do_execute_insert_homogenous(self, transaction, parts):
         # Perform an insert in one shot.
-        table, columns, values = parts.get("table"), parts.get(
-            "columns"), parts.get("values")
+        table, columns, values = (
+            parts.get("table"),
+            parts.get("columns"),
+            parts.get("values"),
+        )
 
         return transaction.insert(table, columns, values)
 
@@ -341,14 +339,14 @@ class Cursor(object):
 
 class Column:
     def __init__(
-            self,
-            name,
-            type_code,
-            display_size=None,
-            internal_size=None,
-            precision=None,
-            scale=None,
-            null_ok=False,
+        self,
+        name,
+        type_code,
+        display_size=None,
+        internal_size=None,
+        precision=None,
+        scale=None,
+        null_ok=False,
     ):
         self.name = name
         self.type_code = type_code
@@ -377,7 +375,9 @@ class Column:
                     None
                     if not self.precision
                     else "precision='{}'".format(self.precision),
-                    None if not self.scale else "scale='{}'".format(self.scale),
+                    None
+                    if not self.scale
+                    else "scale='{}'".format(self.scale),
                     None
                     if not self.null_ok
                     else "null_ok='{}'".format(self.null_ok),
