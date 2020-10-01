@@ -4,7 +4,11 @@
 # license that can be found in the LICENSE file or at
 # https://developers.google.com/open-source/licenses/bsd
 
-"""Cloud Spanner DB connection object."""
+"""DB-API driver Connection implementation for Google Cloud Spanner.
+
+   See
+   https://www.python.org/dev/peps/pep-0249/#connection-objects
+"""
 
 from collections import namedtuple
 
@@ -55,10 +59,12 @@ class Connection:
     def __handle_update_ddl(self, ddl_statements):
         """Run the list of Data Definition Language (DDL) statements on the
         underlying database. Each DDL statement MUST NOT contain a semicolon.
-        Args:
-            ddl_statements: a list of DDL statements, each without a semicolon.
-        Returns:
-            google.api_core.operation.Operation.result()
+
+        :type ddl_statements: list
+        :param ddl_statements: a list of DDL statements, WITHOUT semicolons.
+
+        :rtype: :class:`~google.api_core.operation.Operation.result`
+        :returns: an operation result
         """
         self._raise_if_closed()
         # Synchronously wait on the operation's completion.
