@@ -4,7 +4,11 @@
 # license that can be found in the LICENSE file or at
 # https://developers.google.com/open-source/licenses/bsd
 
-"""Cloud Spanner DB connection object."""
+"""DB-API driver Connection implementation for Google Cloud Spanner.
+
+   See
+   https://www.python.org/dev/peps/pep-0249/#connection-objects
+"""
 
 from collections import namedtuple
 from weakref import WeakSet
