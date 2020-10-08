@@ -9,11 +9,11 @@
 import unittest
 from unittest import mock
 
-from google.cloud.spanner_dbapi import connect, InterfaceError
-
 
 class TestCursor(unittest.TestCase):
     def test_close(self):
+        from google.cloud.spanner_dbapi import connect, InterfaceError
+
         with mock.patch(
             "google.cloud.spanner_v1.instance.Instance.exists",
             return_value=True,
@@ -33,7 +33,9 @@ class TestCursor(unittest.TestCase):
         with self.assertRaises(InterfaceError):
             cursor.execute("SELECT * FROM database")
 
-    def test_connection_closed(self):
+    def test_executemany_on_closed_cursor(self):
+        from google.cloud.spanner_dbapi import connect, InterfaceError
+
         with mock.patch(
             "google.cloud.spanner_v1.instance.Instance.exists",
             return_value=True,
@@ -45,10 +47,97 @@ class TestCursor(unittest.TestCase):
                 connection = connect("test-instance", "test-database")
 
         cursor = connection.cursor()
-        self.assertFalse(cursor.is_closed)
+        cursor.close()
 
-        connection.close()
-
-        self.assertTrue(cursor.is_closed)
         with self.assertRaises(InterfaceError):
-            cursor.execute("SELECT * FROM database")
+            cursor.executemany(
+                """SELECT * FROM table1 WHERE "col1" = @a1""", ()
+            )
+
+    def test_executemany(self):
+        from google.cloud.spanner_dbapi import connect
+
+        operation = """SELECT * FROM table1 WHERE "col1" = @a1"""
+        params_seq = ((1,), (2,))
+
+        with mock.patch(
+            "google.cloud.spanner_v1.instance.Instance.exists",
+            return_value=True,
+        ):
+            with mock.patch(
+                "google.cloud.spanner_v1.database.Database.exists",
+                return_value=True,
+            ):
+                connection = connect("test-instance", "test-database")
+
+        cursor = connection.cursor()
+        with mock.patch(
+            "google.cloud.spanner_dbapi.cursor.Cursor.execute"
+        ) as execute_mock:
+            cursor.executemany(operation, params_seq)
+
+        execute_mock.assert_has_calls(
+            (mock.call(operation, (1,)), mock.call(operation, (2,)))
+        )
+
+
+class TestColumns(unittest.TestCase):
+    def test_ctor(self):
+        from google.cloud.spanner_dbapi.cursor import ColumnInfo
+
+        name = "col-name"
+        type_code = 8
+        display_size = 5
+        internal_size = 10
+        precision = 3
+        scale = None
+        null_ok = False
+
+        cols = ColumnInfo(
+            name,
+            type_code,
+            display_size,
+            internal_size,
+            precision,
+            scale,
+            null_ok,
+        )
+
+        self.assertEqual(cols.name, name)
+        self.assertEqual(cols.type_code, type_code)
+        self.assertEqual(cols.display_size, display_size)
+        self.assertEqual(cols.internal_size, internal_size)
+        self.assertEqual(cols.precision, precision)
+        self.assertEqual(cols.scale, scale)
+        self.assertEqual(cols.null_ok, null_ok)
+        self.assertEqual(
+            cols.fields,
+            (
+                name,
+                type_code,
+                display_size,
+                internal_size,
+                precision,
+                scale,
+                null_ok,
+            ),
+        )
+
+    def test___get_item__(self):
+        from google.cloud.spanner_dbapi.cursor import ColumnInfo
+
+        fields = ("col-name", 8, 5, 10, 3, None, False)
+        cols = ColumnInfo(*fields)
+
+        for i in range(0, 7):
+            self.assertEqual(cols[i], fields[i])
+
+    def test___str__(self):
+        from google.cloud.spanner_dbapi.cursor import ColumnInfo
+
+        cols = ColumnInfo("col-name", 8, None, 10, 3, None, False)
+
+        self.assertEqual(
+            str(cols),
+            "ColumnInfo(name='col-name', type_code=8, internal_size=10, precision='3')",
+        )

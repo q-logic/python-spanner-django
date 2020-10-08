@@ -5,6 +5,7 @@
 # https://developers.google.com/open-source/licenses/bsd
 
 """Database cursor API."""
+from functools import wraps
 
 from google.api_core.exceptions import (
     AlreadyExists,
@@ -12,6 +13,7 @@ from google.api_core.exceptions import (
     InternalServerError,
     InvalidArgument,
 )
+
 from google.cloud.spanner_v1 import param_types
 
 from .exceptions import (
@@ -34,7 +36,6 @@ from .utils import PeekIterator
 
 _UNSET_COUNT = -1
 
-
 # This table maps spanner_types to Spanner's data type sizes as per
 #   https://cloud.google.com/spanner/docs/data-types#allowable-types
 # It is used to map `display_size` to a known type for Cursor.description
@@ -53,58 +54,110 @@ code_to_display_size = {
 }
 
 
-class Cursor:
-    """
-    Database cursor to manage the context of a fetch operation.
+class Cursor(object):
+    """Database cursor to manage the context of a fetch operation.
 
-    :type connection: :class:`spanner_dbapi.connection.Connection`
-    :param connection: Parent connection object for this Cursor.
+    :type connection: :class:`~google.cloud.spanner_dbapi.connection.Connection`
+    :param connection: A DB-API connection to Google Cloud Spanner.
     """
 
     def __init__(self, connection):
-        self._itr = None
-        self._res = None
-        self._row_count = _UNSET_COUNT
         self._connection = connection
         self._is_closed = False
-
-        # the number of rows to fetch at a time with fetchmany()
+        self._stream = None
+        self._itr = None
+        self._row_count = _UNSET_COUNT
         self.arraysize = 1
+        self._ddl_statements = []
+
+    @property
+    def is_closed(self):
+        """The cursor close indicator.
+        :rtype: bool
+        :returns: True if the cursor or the parent connection is closed,
+                  otherwise False.
+        """
+        return self._is_closed or self._connection.is_closed
+
+    @property
+    def connection(self):
+        return self._connection
+
+    @property
+    def rowcount(self):
+        """The number of rows produced by the last `.execute()`."""
+        return self._row_count
+
+    @property
+    def lastrowid(self):
+        return None
+
+    @property
+    def description(self):
+        """Read-only attribute containing a sequence of the following items:
+        -   ``name``
+        -   ``type_code``
+        -   ``display_size``
+        -   ``internal_size``
+        -   ``precision``
+        -   ``scale``
+        -   ``null_ok``
+        """
+        if not (self._stream and self._stream.metadata):
+            return None
+
+        row_type = self._stream.metadata.row_type
+        columns = []
+        for field in row_type.fields:
+            columns.append(
+                ColumnInfo(
+                    name=field.name,
+                    type_code=field.type.code,
+                    # Size of the SQL type of the column.
+                    display_size=code_to_display_size.get(field.type.code),
+                    # Client perceived size of the column.
+                    internal_size=field.ByteSize(),
+                )
+            )
+        return tuple(columns)
+
+    def close(self):
+        """Closes this Cursor, making it unusable from this point forward."""
+        self._connection = None
+        self._is_closed = True
+
+    def callproc(self, procname, args=None):
+        """A no-op, raising an error if the cursor or connection is closed."""
+        self._raise_if_closed()
 
     def execute(self, sql, args=None):
-        """
-        Abstracts and implements execute SQL statements on Cloud Spanner.
-        Args:
-            sql: A SQL statement
-            *args: variadic argument list
-            **kwargs: key worded arguments
-        Returns:
-            None
+        """Prepares and executes a Spanner database operation.
+
+        :type sql: str
+        :param sql: A SQL query statement.
+
+        :type args: list
+        :param args: Additional parameters to supplement the SQL query.
         """
         self._raise_if_closed()
 
         if not self._connection:
             raise ProgrammingError("Cursor is not connected to the database")
 
-        self._res = None
+        self._stream = None
 
         # Classify whether this is a read-only SQL statement.
         try:
             classification = classify_stmt(sql)
             if classification == STMT_DDL:
-                self._connection.append_ddl_statement(sql)
-                return
-
-            # For every other operation, we've got to ensure that
-            # any prior DDL statements were run.
-            self._run_prior_DDL_statements()
-
-            if classification == STMT_NON_UPDATING:
-                self.__handle_DQL(sql, args or None)
+                self._ddl_statements.append()
+                self._run_ddl_statements(sql)
+            elif classification == STMT_NON_UPDATING:
+                self._handle_dql(sql, args or None)
             elif classification == STMT_INSERT:
-                self.__handle_insert(sql, args or None)
+                self._handle_insert(sql, args or None)
             else:
-                self.__handle_update(sql, args or None)
+                self._handle_update(sql, args or None)
         except (AlreadyExists, FailedPrecondition) as e:
             raise IntegrityError(e.details if hasattr(e, "details") else e)
         except InvalidArgument as e:
@@ -112,8 +165,109 @@ class Cursor:
         except InternalServerError as e:
             raise OperationalError(e.details if hasattr(e, "details") else e)
 
-    def __handle_update(self, sql, params):
-        self._connection.in_transaction(self.__do_execute_update, sql, params)
+    def executemany(self, operation, seq_of_params):
+        """Execute the given SQL with every parameters set
+        from the given sequence of parameters.
+
+        :type operation: str
+        :param operation: SQL code to execute.
+
+        :type seq_of_params: list
+        :param seq_of_params: Sequence of additional parameters to run
+                              the query with.
+        """
+        self._raise_if_closed()
+        if not self._connection:
+            raise ProgrammingError("Cursor is not connected to the database")
+
+        for params in seq_of_params:
+            self.execute(operation, params)
+
+    def fetchone(self):
+        """Fetch the next row of a query result set, returning a single
+        sequence, or None when no more data is available."""
+        self._raise_if_closed()
+        try:
+            return next(self)
+        except StopIteration:
+            return None
+
+    def fetchmany(self, size=None):
+        """Fetch the next set of rows of a query result, returning a sequence
+        of sequences. An empty sequence is returned when no more rows are available.
+
+        :type size: int
+        :param size: (Optional) The maximum number of results to fetch.
+
+        :raises InterfaceError:
+            if the previous call to .execute*() did not produce any result set
+            or if no call was issued yet.
+        """
+        self._raise_if_closed()
+
+        if size is None:
+            size = self.arraysize
+
+        items = []
+        for i in range(size):
+            try:
+                items.append(tuple(next(self)))
+            except StopIteration:
+                break
+
+        return items
+
+    def fetchall(self):
+        """Fetch all (remaining) rows of a query result, returning them as
+        a sequence of sequences.
+        """
+        self._raise_if_closed()
+
+        return list(iter(self))
+
+    def nextset(self):
+        """A no-op, raising an error if the cursor or connection is closed."""
+        self._raise_if_closed()
+
+    def setinputsizes(self, sizes):
+        """A no-op, raising an error if the cursor or connection is closed."""
+        self._raise_if_closed()
+
+    def setoutputsize(self, size, column=None):
+        """A no-op, raising an error if the cursor or connection is closed."""
+        self._raise_if_closed()
+
+    def __next__(self):
+        if self._itr is None:
+            raise ProgrammingError("no results to return")
+        return next(self._itr)
+
+    def __iter__(self):
+        if self._itr is None:
+            raise ProgrammingError("no results to return")
+        return self._itr
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, etype, value, traceback):
+        self.close()
+
+    def _raise_if_closed(self):
+        """Raise an exception if this cursor is closed.
+        Helper to check this cursor's state before running a
+        SQL/DDL/DML query. If the parent connection is
+        already closed it also raises an error.
+        :raises: :class:`InterfaceError` if this cursor is closed.
+        """
+        if self.is_closed:
+            raise InterfaceError("Cursor and/or connection is already closed.")
+
+    def _handle_update(self, sql, params):
+        self._raise_if_closed()
+        self._connection.database.run_in_transaction(
+            self.__do_execute_update, sql, params
+        )
 
     def __do_execute_update(self, transaction, sql, params, param_types=None):
         sql = ensure_where_clause(sql)
@@ -128,7 +282,7 @@ class Cursor:
 
         return res
 
-    def __handle_insert(self, sql, params):
+    def _handle_insert(self, sql, params):
         parts = parse_insert(sql, params)
 
         # The split between the two styles exists because:
@@ -147,37 +301,38 @@ class Cursor:
         if parts.get("homogenous"):
             # The common case of multiple values being passed in
             # non-complex pyformat args and need to be uploaded in one RPC.
-            return self._connection.in_transaction(
-                self.__do_execute_insert_homogenous, parts
+            return self._connection.database.run_in_transaction(
+                self._do_execute_insert_homogenous, parts
             )
         else:
             # All the other cases that are esoteric and need
             #   transaction.execute_sql
             sql_params_list = parts.get("sql_params_list")
-            return self._connection.in_transaction(
-                self.__do_execute_insert_heterogenous, sql_params_list
+            return self._connection.database.run_in_transaction(
+                self._do_execute_insert_heterogenous, sql_params_list
             )
 
-    def __do_execute_insert_heterogenous(self, transaction, sql_params_list):
+    def _do_execute_insert_heterogenous(self, transaction, sql_params_list):
         for sql, params in sql_params_list:
             sql, params = sql_pyformat_args_to_spanner(sql, params)
             param_types = get_param_types(params)
             res = transaction.execute_sql(
                 sql, params=params, param_types=param_types
             )
-            # TODO: File a bug with Cloud Spanner and the Python client maintainers
-            # about a lost commit when res isn't read from.
-            _ = list(res)
 
-    def __do_execute_insert_homogenous(self, transaction, parts):
+    def _do_execute_insert_homogenous(self, transaction, parts):
         # Perform an insert in one shot.
-        table = parts.get("table")
-        columns = parts.get("columns")
-        values = parts.get("values")
+        table, columns, values = (
+            parts.get("table"),
+            parts.get("columns"),
+            parts.get("values"),
+        )
+
         return transaction.insert(table, columns, values)
 
-    def __handle_DQL(self, sql, params):
-        with self._connection.read_snapshot() as snapshot:
+    def _handle_dql(self, sql, params):
+        self._raise_if_closed()
+        with self._connection.database.snapshot() as snapshot:
             # Reference
             #  https://googleapis.dev/python/spanner/latest/session-api.html#google.cloud.spanner_v1.session.Session.execute_sql
             sql, params = sql_pyformat_args_to_spanner(sql, params)
@@ -196,158 +351,22 @@ class Cursor:
                 # are for .fetchone() with those that would result in
                 # many items returns a RuntimeError if .fetchone() is
                 # invoked and vice versa.
-                self._res = res
+                self._stream = res
                 # Read the first element so that StreamedResult can
                 # return the metadata after a DQL statement. See issue #155.
-                self._itr = PeekIterator(self._res)
+                self._itr = PeekIterator(self._stream)
                 # Unfortunately, Spanner doesn't seem to send back
                 # information about the number of rows available.
                 self._row_count = _UNSET_COUNT
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, etype, value, traceback):
-        self.__clear()
-
-    def __clear(self):
-        self._connection = None
-
-    @property
-    def description(self):
-        if not (self._res and self._res.metadata):
-            return None
-
-        row_type = self._res.metadata.row_type
-        columns = []
-        for field in row_type.fields:
-            columns.append(
-                Column(
-                    name=field.name,
-                    type_code=field.type.code,
-                    # Size of the SQL type of the column.
-                    display_size=code_to_display_size.get(field.type.code),
-                    # Client perceived size of the column.
-                    internal_size=field.ByteSize(),
-                )
-            )
-        return tuple(columns)
-
-    @property
-    def rowcount(self):
-        return self._row_count
-
-    @property
-    def is_closed(self):
-        """The cursor close indicator.
-
-        :rtype: :class:`bool`
-        :returns: True if this cursor or it's parent connection is closed, False
-                  otherwise.
-        """
-        return self._is_closed or self._connection.is_closed
-
-    def _raise_if_closed(self):
-        """Raise an exception if this cursor is closed.
-
-        Helper to check this cursor's state before running a
-        SQL/DDL/DML query. If the parent connection is
-        already closed it also raises an error.
-
-        :raises: :class:`InterfaceError` if this cursor is closed.
-        """
-        if self.is_closed:
-            raise InterfaceError("cursor is already closed")
-
-    def close(self):
-        """Close this cursor.
-
-        The cursor will be unusable from this point forward.
-        """
-        self.__clear()
-        self._is_closed = True
-
-    def executemany(self, operation, seq_of_params):
-        if not self._connection:
-            raise ProgrammingError("Cursor is not connected to the database")
-
-        for params in seq_of_params:
-            self.execute(operation, params)
-
-    def __next__(self):
-        if self._itr is None:
-            raise ProgrammingError("no results to return")
-        return next(self._itr)
-
-    def __iter__(self):
-        if self._itr is None:
-            raise ProgrammingError("no results to return")
-        return self._itr
-
-    def fetchone(self):
+    def _run_ddl_statements(self, sql):
         self._raise_if_closed()
-
-        try:
-            return next(self)
-        except StopIteration:
-            return None
-
-    def fetchall(self):
-        self._raise_if_closed()
-
-        return list(self.__iter__())
-
-    def fetchmany(self, size=None):
-        """
-        Fetch the next set of rows of a query result, returning a sequence of sequences.
-        An empty sequence is returned when no more rows are available.
-
-        Args:
-            size: optional integer to determine the maximum number of results to fetch.
+        return self._connection.database.update_ddl(sql).result()
 
 
-        Raises:
-            Error if the previous call to .execute*() did not produce any result set
-            or if no call was issued yet.
-        """
-        self._raise_if_closed()
+class ColumnInfo:
+    """Row column description object."""
 
-        if size is None:
-            size = self.arraysize
-
-        items = []
-        for i in range(size):
-            try:
-                items.append(tuple(self.__next__()))
-            except StopIteration:
-                break
-
-        return items
-
-    @property
-    def lastrowid(self):
-        return None
-
-    def setinputsizes(sizes):
-        raise ProgrammingError("Unimplemented")
-
-    def setoutputsize(size, column=None):
-        raise ProgrammingError("Unimplemented")
-
-    def _run_prior_DDL_statements(self):
-        return self._connection.run_prior_DDL_statements()
-
-    def list_tables(self):
-        return self._connection.list_tables()
-
-    def run_sql_in_snapshot(self, sql):
-        return self._connection.run_sql_in_snapshot(sql)
-
-    def get_table_column_schema(self, table_name):
-        return self._connection.get_table_column_schema(table_name)
-
-
-class Column:
     def __init__(
         self,
         name,
@@ -366,48 +385,41 @@ class Column:
         self.scale = scale
         self.null_ok = null_ok
 
+        self.fields = (
+            self.name,
+            self.type_code,
+            self.display_size,
+            self.internal_size,
+            self.precision,
+            self.scale,
+            self.null_ok,
+        )
+
     def __repr__(self):
         return self.__str__()
 
     def __getitem__(self, index):
-        if index == 0:
-            return self.name
-        elif index == 1:
-            return self.type_code
-        elif index == 2:
-            return self.display_size
-        elif index == 3:
-            return self.internal_size
-        elif index == 4:
-            return self.precision
-        elif index == 5:
-            return self.scale
-        elif index == 6:
-            return self.null_ok
+        return self.fields[index]
 
     def __str__(self):
-        rstr = ", ".join(
-            [
-                field
-                for field in [
+        str_repr = ", ".join(
+            filter(
+                lambda part: part is not None,
+                [
                     "name='%s'" % self.name,
                     "type_code=%d" % self.type_code,
-                    None
-                    if not self.display_size
-                    else "display_size=%d" % self.display_size,
-                    None
-                    if not self.internal_size
-                    else "internal_size=%d" % self.internal_size,
-                    None
-                    if not self.precision
-                    else "precision='%s'" % self.precision,
-                    None if not self.scale else "scale='%s'" % self.scale,
-                    None
-                    if not self.null_ok
-                    else "null_ok='%s'" % self.null_ok,
-                ]
-                if field
-            ]
+                    "display_size=%d" % self.display_size
+                    if self.display_size
+                    else None,
+                    "internal_size=%d" % self.internal_size
+                    if self.internal_size
+                    else None,
+                    "precision='%s'" % self.precision
+                    if self.precision
+                    else None,
+                    "scale='%s'" % self.scale if self.scale else None,
+                    "null_ok='%s'" % self.null_ok if self.null_ok else None,
+                ],
+            )
         )
-
-        return "Column(%s)" % rstr
+        return "ColumnInfo(%s)" % str_repr
