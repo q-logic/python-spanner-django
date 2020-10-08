@@ -53,7 +53,7 @@ class TestCursor(unittest.TestCase):
 
         self.assertEqual(cursor.connection, cursor._connection)
 
-        cursor._connection = 'changed-connection'
+        cursor._connection = "changed-connection"
         self.assertEqual(cursor.connection, cursor._connection)
 
     def test_description_if_not_stream(self):
@@ -80,11 +80,11 @@ class TestCursor(unittest.TestCase):
 
         cursor = self._make_cursor()
 
-        self.assertIsNone(cursor.callproc('procname'))
+        self.assertIsNone(cursor.callproc("procname"))
 
         cursor.close()
         with self.assertRaises(InterfaceError):
-            cursor.callproc('procname')
+            cursor.callproc("procname")
 
     def test_nextset(self):
         from google.cloud.spanner_dbapi import InterfaceError
@@ -99,19 +99,19 @@ class TestCursor(unittest.TestCase):
         from google.cloud.spanner_dbapi import InterfaceError
 
         cursor = self._make_cursor()
-        self.assertIsNone(cursor.setinputsizes('sizes'))
+        self.assertIsNone(cursor.setinputsizes("sizes"))
         cursor.close()
         with self.assertRaises(InterfaceError):
-            cursor.setinputsizes('sizes')
+            cursor.setinputsizes("sizes")
 
     def test_setoutputsize(self):
         from google.cloud.spanner_dbapi import InterfaceError
 
         cursor = self._make_cursor()
-        self.assertIsNone(cursor.setoutputsize('size'))
+        self.assertIsNone(cursor.setoutputsize("size"))
         cursor.close()
         with self.assertRaises(InterfaceError):
-            cursor.setoutputsize('size')
+            cursor.setoutputsize("size")
 
     def test_execute_without_connection(self):
         from google.cloud.spanner_dbapi import ProgrammingError

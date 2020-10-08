@@ -72,16 +72,14 @@ class TestConnection(unittest.TestCase):
         connection = self._make_connection()
 
         self.assertEqual(
-            connection._inside_transaction,
-            connection.inside_transaction,
+            connection._inside_transaction, connection.inside_transaction,
         )
 
     def test_transaction_started(self):
         connection = self._make_connection()
 
         self.assertEqual(
-            connection.transaction_started,
-            connection._transaction_started,
+            connection.transaction_started, connection._transaction_started,
         )
 
     def test_cursor(self):

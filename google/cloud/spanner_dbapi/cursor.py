@@ -5,7 +5,6 @@
 # https://developers.google.com/open-source/licenses/bsd
 
 """Database cursor API."""
-from functools import wraps
 
 from google.api_core.exceptions import (
     AlreadyExists,
