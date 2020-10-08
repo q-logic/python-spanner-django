@@ -11,6 +11,21 @@ from unittest import mock
 
 
 class TestCursor(unittest.TestCase):
+    def _make_cursor(self):
+        from google.cloud.spanner_dbapi import connect
+
+        with mock.patch(
+            "google.cloud.spanner_v1.instance.Instance.exists",
+            return_value=True,
+        ):
+            with mock.patch(
+                "google.cloud.spanner_v1.database.Database.exists",
+                return_value=True,
+            ):
+                connection = connect("test-instance", "test-database")
+
+        return connection.cursor()
+
     def test_close(self):
         from google.cloud.spanner_dbapi import connect, InterfaceError
 
@@ -33,20 +48,95 @@ class TestCursor(unittest.TestCase):
         with self.assertRaises(InterfaceError):
             cursor.execute("SELECT * FROM database")
 
+    def test_connection(self):
+        cursor = self._make_cursor()
+
+        self.assertEqual(cursor.connection, cursor._connection)
+
+        cursor._connection = 'changed-connection'
+        self.assertEqual(cursor.connection, cursor._connection)
+
+    def test_description_if_not_stream(self):
+        cursor = self._make_cursor()
+        cursor._stream = None
+
+        self.assertIsNone(cursor.description)
+
+    def test_rowcount(self):
+        cursor = self._make_cursor()
+
+        self.assertEqual(cursor.rowcount, cursor._row_count)
+
+        cursor._row_count = 52
+        self.assertEqual(cursor.rowcount, cursor._row_count)
+
+    def test_lastrowid(self):
+        cursor = self._make_cursor()
+
+        self.assertIsNone(cursor.lastrowid)
+
+    def test_callproc(self):
+        from google.cloud.spanner_dbapi import InterfaceError
+
+        cursor = self._make_cursor()
+
+        self.assertIsNone(cursor.callproc('procname'))
+
+        cursor.close()
+        with self.assertRaises(InterfaceError):
+            cursor.callproc('procname')
+
+    def test_nextset(self):
+        from google.cloud.spanner_dbapi import InterfaceError
+
+        cursor = self._make_cursor()
+        self.assertIsNone(cursor.nextset())
+        cursor.close()
+        with self.assertRaises(InterfaceError):
+            cursor.nextset()
+
+    def test_setinputsizes(self):
+        from google.cloud.spanner_dbapi import InterfaceError
+
+        cursor = self._make_cursor()
+        self.assertIsNone(cursor.setinputsizes('sizes'))
+        cursor.close()
+        with self.assertRaises(InterfaceError):
+            cursor.setinputsizes('sizes')
+
+    def test_setoutputsize(self):
+        from google.cloud.spanner_dbapi import InterfaceError
+
+        cursor = self._make_cursor()
+        self.assertIsNone(cursor.setoutputsize('size'))
+        cursor.close()
+        with self.assertRaises(InterfaceError):
+            cursor.setoutputsize('size')
+
+    def test_execute_without_connection(self):
+        from google.cloud.spanner_dbapi import ProgrammingError
+
+        cursor = self._make_cursor()
+        cursor._connection = None
+
+        with self.assertRaises(ProgrammingError):
+            cursor.execute('SELECT * FROM table1 WHERE "col1" = @a1')
+
+    def test_executemany_without_connection(self):
+        from google.cloud.spanner_dbapi import ProgrammingError
+
+        cursor = self._make_cursor()
+        cursor._connection = None
+
+        with self.assertRaises(ProgrammingError):
+            cursor.executemany(
+                """SELECT * FROM table1 WHERE "col1" = @a1""", ()
+            )
+
     def test_executemany_on_closed_cursor(self):
-        from google.cloud.spanner_dbapi import connect, InterfaceError
+        from google.cloud.spanner_dbapi import InterfaceError
 
-        with mock.patch(
-            "google.cloud.spanner_v1.instance.Instance.exists",
-            return_value=True,
-        ):
-            with mock.patch(
-                "google.cloud.spanner_v1.database.Database.exists",
-                return_value=True,
-            ):
-                connection = connect("test-instance", "test-database")
-
-        cursor = connection.cursor()
+        cursor = self._make_cursor()
         cursor.close()
 
         with self.assertRaises(InterfaceError):
@@ -55,22 +145,10 @@ class TestCursor(unittest.TestCase):
             )
 
     def test_executemany(self):
-        from google.cloud.spanner_dbapi import connect
-
         operation = """SELECT * FROM table1 WHERE "col1" = @a1"""
         params_seq = ((1,), (2,))
 
-        with mock.patch(
-            "google.cloud.spanner_v1.instance.Instance.exists",
-            return_value=True,
-        ):
-            with mock.patch(
-                "google.cloud.spanner_v1.database.Database.exists",
-                return_value=True,
-            ):
-                connection = connect("test-instance", "test-database")
-
-        cursor = connection.cursor()
+        cursor = self._make_cursor()
         with mock.patch(
             "google.cloud.spanner_dbapi.cursor.Cursor.execute"
         ) as execute_mock:
@@ -79,6 +157,21 @@ class TestCursor(unittest.TestCase):
         execute_mock.assert_has_calls(
             (mock.call(operation, (1,)), mock.call(operation, (2,)))
         )
+
+    def test_context_success(self):
+        cursor = self._make_cursor()
+
+        with cursor as c:
+            c.nextset()
+        self.assertTrue(cursor._is_closed)
+
+    def test_context_error(self):
+        cursor = self._make_cursor()
+
+        with self.assertRaises(Exception):
+            with cursor:
+                raise Exception
+        self.assertTrue(cursor._is_closed)
 
 
 class TestColumns(unittest.TestCase):

@@ -237,15 +237,15 @@ class Cursor(object):
         """A no-op, raising an error if the cursor or connection is closed."""
         self._raise_if_closed()
 
-    def __next__(self):
-        if self._itr is None:
-            raise ProgrammingError("no results to return")
-        return next(self._itr)
-
     def __iter__(self):
         if self._itr is None:
             raise ProgrammingError("no results to return")
         return self._itr
+
+    def __next__(self):
+        if self._itr is None:
+            raise ProgrammingError("no results to return")
+        return next(self._itr)
 
     def __enter__(self):
         return self
@@ -260,7 +260,7 @@ class Cursor(object):
         already closed it also raises an error.
         :raises: :class:`InterfaceError` if this cursor is closed.
         """
-        if self.is_closed:
+        if self._is_closed:
             raise InterfaceError("Cursor and/or connection is already closed.")
 
     def _handle_update(self, sql, params):
