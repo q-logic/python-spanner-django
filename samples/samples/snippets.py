@@ -12,6 +12,7 @@ For more information, see the README.rst under /python-spanner-django.
 
 import argparse
 
+from google.cloud import spanner_v1
 from google.cloud.spanner_dbapi import connect
 
 
@@ -70,11 +71,23 @@ def close_cursor(instance_id, database_id):
     # [END spanner_dbapi_close_cursor]
 
 
-def create_table(instance_id, database_id):
-    """Creates a table for sample data."""
-    # [START spanner_dbapi_create_table]
+def create_database(instance_id, database_id):
+    """Creates a database and tables for sample data."""
+    # [START spanner_dbapi_create_database]
     # instance_id = "your-spanner-instance"
     # database_id = "your-spanner-db-id"
+
+    spanner_client = spanner_v1.Client()
+    instance = spanner_client.instance(instance_id)
+
+    database = instance.database(database_id)
+
+    operation = database.create()
+
+    print("Waiting for operation to complete...")
+    operation.result(120)
+
+    print("Created database {} on instance {}".format(database_id, instance_id))
 
     connection = connect(instance_id, database_id)
 
@@ -87,8 +100,8 @@ def create_table(instance_id, database_id):
             ) PRIMARY KEY (SingerId)"""
         curs.execute(sql)
 
-        print('Created table')
-    # [END spanner_dbapi_create_table]
+        print('Created table in database {}'.format(database_id))
+    # [END spanner_dbapi_create_database]
 
 
 def insert_data(instance_id, database_id):
@@ -206,7 +219,7 @@ if __name__ == "__main__":
     subparsers.add_parser("close_connection", help=close_connection.__doc__)
     subparsers.add_parser("create_cursor", help=create_cursor.__doc__)
     subparsers.add_parser("close_cursor", help=close_cursor.__doc__)
-    subparsers.add_parser("create_table", help=create_table.__doc__)
+    subparsers.add_parser("create_database", help=create_database.__doc__)
     subparsers.add_parser("insert_data", help=insert_data.__doc__)
     subparsers.add_parser(
         "query_with_parameters", help=query_with_parameters.__doc__
@@ -226,7 +239,7 @@ if __name__ == "__main__":
     elif args.command == "close_cursor":
         close_cursor(args.instance_id, args.database_id)
     elif args.command == "execute_operation":
-        create_table(args.instance_id, args.database_id)
+        create_database(args.instance_id, args.database_id)
     elif args.command == "insert_data":
         insert_data(args.instance_id, args.database_id)
     elif args.command == "executemany_operation":
