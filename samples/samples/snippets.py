@@ -16,6 +16,38 @@ from google.cloud import spanner_v1
 from google.cloud.spanner_dbapi import connect
 
 
+# [START spanner_dbapi_create_database]
+def create_database(instance_id, database_id):
+    """Creates a database and tables for sample data."""
+    spanner_client = spanner_v1.Client()
+    instance = spanner_client.instance(instance_id)
+
+    database = instance.database(database_id)
+
+    operation = database.create()
+
+    print("Waiting for operation to complete...")
+    operation.result(120)
+
+    print("Created database {} on instance {}".format(database_id, instance_id))
+
+    connection = connect(instance_id, database_id)
+
+    with connection.cursor() as curs:
+        sql = """CREATE TABLE Singers (
+            SingerId     INT64 NOT NULL,
+            FirstName    STRING(1024),
+            LastName     STRING(1024),
+            SingerInfo   BYTES(MAX)
+            ) PRIMARY KEY (SingerId)"""
+        curs.execute(sql)
+
+        print('Created table in database {}'.format(database_id))
+
+
+# [END spanner_dbapi_create_database]
+
+
 def create_connection(instance_id, database_id):
     """Create a connection to Cloud Spanner database."""
     # [START spanner_dbapi_create_connection]
@@ -71,44 +103,11 @@ def close_cursor(instance_id, database_id):
     # [END spanner_dbapi_close_cursor]
 
 
-def create_database(instance_id, database_id):
-    """Creates a database and tables for sample data."""
-    # [START spanner_dbapi_create_database]
-    # instance_id = "your-spanner-instance"
-    # database_id = "your-spanner-db-id"
-
-    spanner_client = spanner_v1.Client()
-    instance = spanner_client.instance(instance_id)
-
-    database = instance.database(database_id)
-
-    operation = database.create()
-
-    print("Waiting for operation to complete...")
-    operation.result(120)
-
-    print("Created database {} on instance {}".format(database_id, instance_id))
-
-    connection = connect(instance_id, database_id)
-
-    with connection.cursor() as curs:
-        sql = """CREATE TABLE Singers (
-            SingerId     INT64 NOT NULL,
-            FirstName    STRING(1024),
-            LastName     STRING(1024),
-            SingerInfo   BYTES(MAX)
-            ) PRIMARY KEY (SingerId)"""
-        curs.execute(sql)
-
-        print('Created table in database {}'.format(database_id))
-    # [END spanner_dbapi_create_database]
-
-
 def insert_data(instance_id, database_id):
     """Inserts sample data into the given database.
 
-    The database and table must already exist and can table be created using
-    `create_table`.
+    The database and table must already exist and can be created using
+    `create_database`.
     """
     # [START spanner_dbapi_insert_data]
     # instance_id = "your-spanner-instance"
