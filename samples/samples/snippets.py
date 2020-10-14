@@ -37,7 +37,7 @@ def close_connection(instance_id, database_id):
 
     connection.close()
 
-    print("Connection is closed")
+    print("Closed connection")
     # [END spanner_dbapi_close_connection]
 
 
@@ -51,7 +51,7 @@ def create_cursor(instance_id, database_id):
 
     cursor = connection.cursor()
 
-    print("Created cursor for current connection")
+    print("Created cursor")
     # [END spanner_dbapi_create_cursor]
 
 
@@ -66,53 +66,77 @@ def close_cursor(instance_id, database_id):
 
     cursor.close()
 
-    print("Cursor is closed")
+    print("Closed cursor")
     # [END spanner_dbapi_close_cursor]
 
 
-def execute_operation(instance_id, database_id):
-    """Executes a Spanner database operation."""
-    # [START spanner_dbapi_execute_operation]
+def create_table(instance_id, database_id):
+    """Creates a table for sample data."""
+    # [START spanner_dbapi_create_table]
     # instance_id = "your-spanner-instance"
     # database_id = "your-spanner-db-id"
 
     connection = connect(instance_id, database_id)
-    cursor = connection.cursor()
 
-    sql = """
-        INSERT Singers (SingerId, FirstName, LastName)
-        VALUES (1, 'Marc', 'Richards'), 
-               (2, 'Catalina', 'Smith'),
-               (3, 'Alice', 'Trentor'),
-               (4, 'Lea', 'Martin'),
-               (5, 'David', 'Lomond'),
-        """
-    cursor.execute(sql)
-    connection.close()
+    with connection.cursor() as curs:
+        sql = """CREATE TABLE Singers (
+            SingerId     INT64 NOT NULL,
+            FirstName    STRING(1024),
+            LastName     STRING(1024),
+            SingerInfo   BYTES(MAX)
+            ) PRIMARY KEY (SingerId)"""
+        curs.execute(sql)
 
-    print('Operation is executed')
-    # [END spanner_dbapi_execute_operation]
+        print('Created table')
+    # [END spanner_dbapi_create_table]
 
 
-def executemany_operation(instance_id, database_id):
-    """Executes a Spanner database operation with every parameters set."""
-    # [START spanner_dbapi_executemany_operation]
+def insert_data(instance_id, database_id):
+    """Inserts sample data into the given database.
+
+    The database and table must already exist and can table be created using
+    `create_table`.
+    """
+    # [START spanner_dbapi_insert_data]
     # instance_id = "your-spanner-instance"
     # database_id = "your-spanner-db-id"
 
     connection = connect(instance_id, database_id)
-    cursor = connection.cursor()
 
-    sql = """
-        SELECT SingerId, FirstName, LastName 
-        FROM Singers 
-        WHERE LastName = @lastName
-        """
-    cursor.executemany(sql, [{"lastName": "Smith"}, {"lastName": "Martin"}])
-    connection.close()
+    with connection.cursor() as curs:
+        sql = """
+            INSERT Singers (SingerId, FirstName, LastName)
+            VALUES (1, 'Marc', 'Martin'), 
+                   (2, 'Catalina', 'Smith'),
+                   (3, 'Alice', 'Trentor'),
+                   (4, 'Lea', 'Martin'),
+                   (5, 'David', 'Lomond'),
+            """
+        curs.execute(sql)
 
-    print('Operation is executed')
-    # [END spanner_dbapi_executemany_operation]
+        print("Inserted data.")
+    # [END spanner_dbapi_insert_data]
+
+
+def query_with_parameters(instance_id, database_id):
+    """Query a table using parameters. """
+    # [START spanner_dbapi_query_with_parameters]
+    # instance_id = "your-spanner-instance"
+    # database_id = "your-spanner-db-id"
+
+    connection = connect(instance_id, database_id)
+
+    with connection.cursor() as curs:
+        sql = """
+            SELECT SingerId, FirstName, LastName 
+            FROM Singers 
+            WHERE LastName = @lastName
+            """
+        curs.executemany(sql, [{"lastName": "Smith"}, {"lastName": "Martin"}])
+
+        for row in curs:
+            print("SingerId: {}, FirstName: {}, LastName: {}".format(*row))
+    # [END spanner_dbapi_query_with_parameters]
 
 
 def fetch_next_row(instance_id, database_id):
@@ -122,15 +146,13 @@ def fetch_next_row(instance_id, database_id):
     # database_id = "your-spanner-db-id"
 
     connection = connect(instance_id, database_id)
-    cursor = connection.cursor()
 
-    sql = "SELECT SingerId, FirstName, LastName FROM Singers"
-    cursor.execute(sql)
+    with connection.cursor() as curs:
+        sql = "SELECT SingerId, FirstName, LastName FROM Singers"
+        curs.execute(sql)
+        row = curs.fetchone()
 
-    row = cursor.fetchone()
-    connection.close()
-
-    print("SingerId: {}, FirstName: {}, LastName: {}".format(*row))
+        print("SingerId: {}, FirstName: {}, LastName: {}".format(*row))
     # [END spanner_dbapi_fetch_next_row]
 
 
@@ -141,16 +163,14 @@ def fetch_many_rows(instance_id, database_id):
     # database_id = "your-spanner-db-id"
 
     connection = connect(instance_id, database_id)
-    cursor = connection.cursor()
 
-    sql = "SELECT SingerId, FirstName, LastName FROM Singers"
-    cursor.execute(sql)
+    with connection.cursor() as curs:
+        sql = "SELECT SingerId, FirstName, LastName FROM Singers"
+        curs.execute(sql)
+        rows = curs.fetchmany(size=5)
 
-    rows = cursor.fetchmany(size=5)
-    connection.close()
-
-    for row in rows:
-        print("SingerId: {}, FirstName: {}, LastName: {}".format(*row))
+        for row in rows:
+            print("SingerId: {}, FirstName: {}, LastName: {}".format(*row))
     # [END spanner_dbapi_fetch_many_rows]
 
 
@@ -161,15 +181,14 @@ def fetch_all_rows(instance_id, database_id):
     # database_id = "your-spanner-db-id"
 
     connection = connect(instance_id, database_id)
-    cursor = connection.cursor()
 
-    sql = "SELECT SingerId, FirstName, LastName FROM Singers"
-    cursor.execute(sql)
+    with connection.cursor() as curs:
+        sql = "SELECT SingerId, FirstName, LastName FROM Singers"
+        curs.execute(sql)
+        rows = curs.fetchall()
 
-    rows = cursor.fetchall()
-
-    for row in rows:
-        print("SingerId: {}, FirstName: {}, LastName: {}".format(*row))
+        for row in rows:
+            print("SingerId: {}, FirstName: {}, LastName: {}".format(*row))
     # [END spanner_dbapi_fetch_all_rows]
 
 
@@ -187,9 +206,10 @@ if __name__ == "__main__":
     subparsers.add_parser("close_connection", help=close_connection.__doc__)
     subparsers.add_parser("create_cursor", help=create_cursor.__doc__)
     subparsers.add_parser("close_cursor", help=close_cursor.__doc__)
-    subparsers.add_parser("execute_operation", help=execute_operation.__doc__)
+    subparsers.add_parser("create_table", help=create_table.__doc__)
+    subparsers.add_parser("insert_data", help=insert_data.__doc__)
     subparsers.add_parser(
-        "executemany_operation", help=executemany_operation.__doc__
+        "query_with_parameters", help=query_with_parameters.__doc__
     )
     subparsers.add_parser("fetch_next_row", help=fetch_next_row.__doc__)
     subparsers.add_parser("fetch_many_rows", help=fetch_many_rows.__doc__)
@@ -206,9 +226,11 @@ if __name__ == "__main__":
     elif args.command == "close_cursor":
         close_cursor(args.instance_id, args.database_id)
     elif args.command == "execute_operation":
-        execute_operation(args.instance_id, args.database_id)
+        create_table(args.instance_id, args.database_id)
+    elif args.command == "insert_data":
+        insert_data(args.instance_id, args.database_id)
     elif args.command == "executemany_operation":
-        executemany_operation(args.instance_id, args.database_id)
+        query_with_parameters(args.instance_id, args.database_id)
     elif args.command == "fetch_next_row":
         fetch_next_row(args.instance_id, args.database_id)
     elif args.command == "fetch_many_rows":
