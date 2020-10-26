@@ -62,7 +62,7 @@ def lint_setup_py(session):
 
 def default(session):
     # Install all test dependencies, then install this package in-place.
-    session.install("mock", "pytest", "pytest-cov")
+    session.install("mock", "pytest", "pytest-cov", "django")
     session.install("-e", ".")
 
     # Run py.test against the unit tests.
@@ -71,12 +71,13 @@ def default(session):
         "--quiet",
         "--cov=django_spanner",
         "--cov=google.cloud",
-        "--cov=tests.spanner_dbapi",
+        # "--cov=tests.spanner_dbapi",
         "--cov-append",
         "--cov-config=.coveragerc",
         "--cov-report=",
         "--cov-fail-under=0",
-        os.path.join("tests", "spanner_dbapi"),
+        # os.path.join("tests", "spanner_dbapi"),
+        os.path.join("tests", "unit"),
         *session.posargs
     )
 
