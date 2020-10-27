@@ -4,23 +4,22 @@
 # license that can be found in the LICENSE file or at
 # https://developers.google.com/open-source/licenses/bsd
 
-"""Connection() class unit tests."""
+"""Django-Spanner SQLCompiler class unit tests."""
 
 import unittest
 from unittest import mock
 
-# import google.cloud.spanner_dbapi.exceptions as dbapi_exceptions
-
-# from google.cloud.spanner_dbapi.connection import AUTOCOMMIT_MODE_WARNING
-
 
 class TestSQLCompiler(unittest.TestCase):
     def test_get_combinator_sql(self):
-        # from django.db.models.sql.query import Query
         from django.core.exceptions import EmptyResultSet
         from django.db.utils import DatabaseError
         from django_spanner.compiler import SQLCompiler
-        # from django_spanner.features import DatabaseFeatures
+
+        def _empty_result_set():
+            from django.core.exceptions import EmptyResultSet
+
+            raise EmptyResultSet
 
         query = mock.MagicMock()
         query.values_select = False
@@ -73,23 +72,21 @@ class TestSQLCompiler(unittest.TestCase):
         mock_cquery.return_value.get_compiler.return_value = [0, 0]
         mock_compiler.return_value.get_order_by.return_value = False
         res, params = compiler.get_combinator_sql(combinator, all_)
-        self.assertIsInstance(res, list)
-        self.assertIsInstance(params, list)
+        self.assertEqual(res[0].split()[0], '({})'.format(part_sql))
+        self.assertEqual(params[:9], [c for c in part_args])
 
+        compiler.connection.features.supports_parentheses_in_compound = False
+        res, params = compiler.get_combinator_sql(combinator, all_)
+        self.assertEqual(res[0].split()[0], 'SELECT')
+        self.assertEqual(params[:9], [c for c in part_args])
 
+        mock_compiler.return_value.query.combinator = False
+        res, params = compiler.get_combinator_sql(combinator, all_)
+        self.assertEqual(res[0].split()[0], part_sql)
+        self.assertEqual(params[:9], [c for c in part_args])
 
-
-
-    # @mock.patch("warnings.warn")
-    # def test_transaction_autocommit_warnings(self, warn_mock):
-    #     connection = self._make_connection()
-    #     connection.autocommit = True
-    #
-    #     connection.commit()
-    #     warn_mock.assert_called_with(
-    #         AUTOCOMMIT_MODE_WARNING, UserWarning, stacklevel=2
-    #     )
-    #     connection.rollback()
-    #     warn_mock.assert_called_with(
-    #         AUTOCOMMIT_MODE_WARNING, UserWarning, stacklevel=2
-    #     )
+        mock_compiler.return_value.as_sql = _empty_result_set
+        with self.assertRaises(EmptyResultSet):
+            compiler.get_combinator_sql(combinator, all_)
+        with self.assertRaises(EmptyResultSet):
+            compiler.get_combinator_sql(None, all_)
