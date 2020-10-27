@@ -71,12 +71,11 @@ def default(session):
         "--quiet",
         "--cov=django_spanner",
         "--cov=google.cloud",
-        # "--cov=tests.spanner_dbapi",
+        "--cov=tests.unit",
         "--cov-append",
         "--cov-config=.coveragerc",
         "--cov-report=",
-        "--cov-fail-under=0",
-        # os.path.join("tests", "spanner_dbapi"),
+        "--cov-fail-under=70",
         os.path.join("tests", "unit"),
         *session.posargs
     )
